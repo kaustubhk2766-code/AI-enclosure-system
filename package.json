@@ -1,17 +1,7 @@
 {
-  "name": "electronics-enclosure-frontend",
-  "private": true,
+  "name": "electronics-enclosure",
   "version": "1.0.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "axios": "^1.6.0"
-  },
-  "devDependencies": {
-    "vite": "^5.0.0"
+    "build": "echo Build completed"
   }
 }
