@@ -2,7 +2,11 @@ services:
   - type: web
     name: enclosure-generator-backend
     env: python
+    region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn bapp:app
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHONPATH
+        value: .
     autoDeploy: true
