@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import "./App.css";
+import "./frontend.css";
 
 function App() {
 
@@ -16,6 +16,20 @@ function App() {
   });
 
   const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // --------------------------------
+  // BACKEND URL
+  // --------------------------------
+
+  const BACKEND_URL = "http://127.0.0.1:5000/api/generate";
+
+  // After Render deployment:
+  // const BACKEND_URL = "https://your-backend.onrender.com/api/generate";
+
+  // --------------------------------
+  // HANDLE INPUT
+  // --------------------------------
 
   const handleChange = (e) => {
 
@@ -23,29 +37,29 @@ function App() {
 
     setFormData({
       ...formData,
-      [name]:
-        type === "checkbox"
-          ? checked
-          : Number(value)
+      [name]: type === "checkbox"
+        ? checked
+        : parseFloat(value)
     });
   };
 
+  // --------------------------------
+  // GENERATE
+  // --------------------------------
+
   const generateEnclosure = async () => {
+
+    setLoading(true);
 
     try {
 
-      const response = await fetch(
-        "http://127.0.0.1:5000/api/generate",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json"
-          },
-
-          body: JSON.stringify(formData)
-        }
-      );
+      const response = await fetch(BACKEND_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(formData)
+      });
 
       const data = await response.json();
 
@@ -54,7 +68,10 @@ function App() {
     } catch (error) {
 
       alert("Backend connection failed");
+
     }
+
+    setLoading(false);
   };
 
   return (
@@ -64,6 +81,8 @@ function App() {
       <h1>AI Electronics Enclosure Generator</h1>
 
       <div className="card">
+
+        <h2>PCB Dimensions</h2>
 
         <input
           type="number"
@@ -88,6 +107,8 @@ function App() {
           value={formData.pcb_height}
           onChange={handleChange}
         />
+
+        <h2>Enclosure Settings</h2>
 
         <input
           type="number"
@@ -123,8 +144,6 @@ function App() {
           Ventilation
         </label>
 
-        <br />
-
         <label>
           <input
             type="checkbox"
@@ -134,8 +153,6 @@ function App() {
           />
           Mounting Standoffs
         </label>
-
-        <br />
 
         <label>
           <input
@@ -147,10 +164,8 @@ function App() {
           Separate Lid
         </label>
 
-        <br /><br />
-
         <button onClick={generateEnclosure}>
-          Generate Enclosure
+          {loading ? "Generating..." : "Generate Enclosure"}
         </button>
 
       </div>
@@ -159,11 +174,13 @@ function App() {
 
         <div className="result">
 
-          <h2>Result</h2>
+          <h2>Generation Result</h2>
 
-          <p>Job ID: {result.job_id}</p>
+          <p><strong>Job ID:</strong> {result.job_id}</p>
 
-          <p>Status: {result.status}</p>
+          <p><strong>Status:</strong> {result.status}</p>
+
+          <p><strong>Created:</strong> {result.created_at}</p>
 
           <a
             href={`http://127.0.0.1:5000${result.scad_file}`}
