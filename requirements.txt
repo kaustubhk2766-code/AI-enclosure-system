@@ -2,4 +2,7 @@ Flask==3.0.3
 flask-cors==4.0.1
 gunicorn==22.0.0
 python-dotenv==1.0.1
+openai==1.35.10
 requests==2.32.3
+SAMBANOVA_API_KEY=4381ef24-096c-40a7-beab-6dd5b10b3db5
+SAMBANOVA_BASE_URL=https://api.sambanova.ai/v1
