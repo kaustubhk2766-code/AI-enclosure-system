@@ -1,426 +1,448 @@
-from pathlib import Path
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from openai import OpenAI
+from dotenv import load_dotenv
+
+import os
 import json
 import uuid
-import subprocess
-import time
-from textwrap import dedent
+from datetime import datetime
+
+# ==========================================
+# LOAD ENV
+# ==========================================
+
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+
+# ==========================================
+# SAMBANOVA CONFIG
+# ==========================================
+
+SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
+
+client = OpenAI(
+    api_key=SAMBANOVA_API_KEY,
+    base_url="https://api.sambanova.ai/v1"
+)
+
+# ==========================================
+# API KEY VALIDATION
+# ==========================================
 
+VALID_API_KEYS = {
+    "demo-key-12345": {
+        "user": "demo_user",
+        "active": True
+    }
+}
 
-# ------------------------------------------------
-# Base Directories
-# ------------------------------------------------
+def validate_api_key(api_key):
 
-BASE_DIR = Path(__file__).resolve().parent
+    if not api_key:
+        return False, "API key required"
 
-GENERATED_DIR = BASE_DIR / "generated"
-GENERATED_DIR.mkdir(exist_ok=True)
+    if api_key not in VALID_API_KEYS:
+        return False, "Invalid API key"
 
+    return True, "Valid"
 
-# ------------------------------------------------
-# Main Generator Class
-# ------------------------------------------------
 
-class EnclosureGenerator:
+# ==========================================
+# COMPONENT DATABASE
+# ==========================================
 
-    def __init__(self):
+COMPONENT_DATABASE = {
 
-        self.jobs_file = GENERATED_DIR / "jobs.json"
+    "CPU/Processor":{
+        "maxTemp":85,
+        "heatOutput":"high",
+        "ventilationNeeded":"critical"
+    },
 
-        if not self.jobs_file.exists():
-            self.jobs_file.write_text("[]")
+    "GPU/Graphics":{
+        "maxTemp":80,
+        "heatOutput":"high",
+        "ventilationNeeded":"critical"
+    },
 
-    # ------------------------------------------------
-    # Job Storage Helpers
-    # ------------------------------------------------
+    "Power Supply":{
+        "maxTemp":75,
+        "heatOutput":"high",
+        "ventilationNeeded":"critical"
+    },
 
-    def _load_jobs(self):
+    "Motor Driver":{
+        "maxTemp":70,
+        "heatOutput":"high",
+        "ventilationNeeded":"critical"
+    },
 
-        try:
-            return json.loads(self.jobs_file.read_text())
+    "Voltage Regulator":{
+        "maxTemp":75,
+        "heatOutput":"medium",
+        "ventilationNeeded":"high"
+    },
 
-        except Exception:
-            return []
+    "Battery":{
+        "maxTemp":60,
+        "heatOutput":"medium",
+        "ventilationNeeded":"medium"
+    },
 
-    def _save_jobs(self, jobs):
+    "Microcontroller":{
+        "maxTemp":85,
+        "heatOutput":"low",
+        "ventilationNeeded":"low"
+    },
 
-        self.jobs_file.write_text(
-            json.dumps(jobs, indent=2)
-        )
+    "Sensor":{
+        "maxTemp":80,
+        "heatOutput":"low",
+        "ventilationNeeded":"low"
+    },
 
-    # ------------------------------------------------
-    # Public Job APIs
-    # ------------------------------------------------
+    "LED":{
+        "maxTemp":70,
+        "heatOutput":"low",
+        "ventilationNeeded":"low"
+    }
+}
 
-    def list_jobs(self):
+# ==========================================
+# HEAT ANALYSIS
+# ==========================================
 
-        jobs = self._load_jobs()
+def analyze_components(components):
 
-        return jobs[-50:][::-1]
+    analysis={
 
-    def get_job(self, job_id):
+        "components_analyzed":len(components),
+        "details":[]
+    }
 
-        jobs = self._load_jobs()
+    total_heat=0
+    critical=0
+    max_temp=0
 
-        for job in jobs:
+    for component in components:
 
-            if job["job_id"] == job_id:
-                return job
+        if component in COMPONENT_DATABASE:
 
-        return None
+            c=COMPONENT_DATABASE[component]
 
-    def job_file(self, job_id, filename):
+            analysis["details"].append({
 
-        return GENERATED_DIR / job_id / filename
+                "name":component,
+                "maxTemp":c["maxTemp"],
+                "heatOutput":c["heatOutput"],
+                "ventilationNeeded":
+                c["ventilationNeeded"]
+            })
 
-    # ------------------------------------------------
-    # OpenSCAD Generator
-    # ------------------------------------------------
+            if c["heatOutput"]=="high":
+                total_heat+=3
 
-    def _generate_scad(self, payload):
+            elif c["heatOutput"]=="medium":
+                total_heat+=2
 
-        pcb_l = float(payload["pcb_length"])
-        pcb_w = float(payload["pcb_width"])
+            else:
+                total_heat+=1
 
-        pcb_h = float(payload.get("pcb_height", 1.6))
+            if c["ventilationNeeded"]=="critical":
+                critical+=1
 
-        wall = float(payload.get("wall_thickness", 2.0))
-        clearance = float(payload.get("clearance", 1.5))
-
-        bottom = float(payload.get("bottom_thickness", 2.0))
-        top = float(payload.get("top_thickness", 2.0))
-
-        internal_h = float(
-            payload.get("internal_height", 20.0)
-        )
-
-        ventilation = bool(
-            payload.get("ventilation", False)
-        )
-
-        mounting = bool(
-            payload.get("mounting_standoffs", True)
-        )
-
-        lid_separation = bool(
-            payload.get("lid_separation", True)
-        )
-
-        connector_cutouts = payload.get(
-            "connector_cutouts",
-            []
-        )
-
-        mounting_holes = payload.get(
-            "mounting_holes",
-            []
-        )
-
-        # ------------------------------------------------
-        # Dimensions
-        # ------------------------------------------------
-
-        outer_l = pcb_l + 2 * (clearance + wall)
-        outer_w = pcb_w + 2 * (clearance + wall)
-
-        outer_h = (
-            bottom
-            + pcb_h
-            + internal_h
-            + top
-        )
-
-        # ------------------------------------------------
-        # Connector Cutouts
-        # ------------------------------------------------
-
-        cutout_code = "\n".join([
-
-            f'''
-            translate([
-                {c["x"]},
-                {c["y"]},
-                {c.get("z", 0)}
-            ])
-            cube([
-                {c["width"]},
-                {c["height"]},
-                {wall * 3}
-            ], center=false);
-            '''
-
-            for c in connector_cutouts
-
-        ]) or "cube([0,0,0]);"
-
-        # ------------------------------------------------
-        # Mounting Holes
-        # ------------------------------------------------
-
-        hole_code = "\n".join([
-
-            f'''
-            translate([
-                {h["x"]},
-                {h["y"]},
-                0
-            ])
-            cylinder(
-                h={bottom + 20},
-                r={h.get("diameter", 3.2) / 2},
-                center=false
-            );
-            '''
-
-            for h in mounting_holes
-
-        ]) or "cube([0,0,0]);"
-
-        # ------------------------------------------------
-        # Standoffs
-        # ------------------------------------------------
-
-        standoff_code = "\n".join([
-
-            f'''
-            translate([
-                {h["x"]},
-                {h["y"]},
-                {bottom}
-            ])
-            cylinder(h=8, r=3.2);
-            '''
-
-            for h in mounting_holes
-
-        ])
-
-        # ------------------------------------------------
-        # Final OpenSCAD Script
-        # ------------------------------------------------
-
-        scad = f"""
-        $fn = 48;
-
-        outer_l = {outer_l};
-        outer_w = {outer_w};
-        outer_h = {outer_h};
-
-        wall = {wall};
-        bottom = {bottom};
-        top = {top};
-
-        module enclosure_base() {{
-
-            difference() {{
-
-                cube([
-                    outer_l,
-                    outer_w,
-                    outer_h
-                ], center=false);
-
-                translate([
-                    wall,
-                    wall,
-                    bottom
-                ])
-
-                cube([
-                    outer_l - 2*wall,
-                    outer_w - 2*wall,
-                    outer_h - bottom - top + 0.2
-                ], center=false);
-
-                union() {{
-                    {hole_code}
-                }}
-
-                union() {{
-                    {cutout_code}
-                }}
-            }}
-        }}
-
-        module enclosure_lid() {{
-
-            difference() {{
-
-                translate([
-                    0,
-                    0,
-                    outer_h + 4
-                ])
-
-                cube([
-                    outer_l,
-                    outer_w,
-                    top + 4
-                ], center=false);
-
-                translate([
-                    wall,
-                    wall,
-                    outer_h + 4
-                ])
-
-                cube([
-                    outer_l - 2*wall,
-                    outer_w - 2*wall,
-                    top + 2
-                ], center=false);
-            }}
-        }}
-
-        module standoffs() {{
-
-            if ({str(mounting).lower()}) {{
-
-                {standoff_code}
-
-            }}
-        }}
-
-        module ventilation_slots() {{
-
-            if ({str(ventilation).lower()}) {{
-
-                for (i = [0:7]) {{
-
-                    translate([
-                        12 + i*10,
-                        outer_w/2,
-                        outer_h - 1.2
-                    ])
-
-                    cube([
-                        6,
-                        1.2,
-                        2
-                    ], center=true);
-                }}
-            }}
-        }}
-
-        if ({str(lid_separation).lower()}) {{
-
-            enclosure_base();
-            enclosure_lid();
-            standoffs();
-            ventilation_slots();
-
-        }} else {{
-
-            difference() {{
-
-                union() {{
-                    enclosure_base();
-                    standoffs();
-                }}
-
-                ventilation_slots();
-            }}
-        }}
-        """
-
-        return dedent(scad)
-
-    # ------------------------------------------------
-    # Main Generate Function
-    # ------------------------------------------------
-
-    def generate(self, payload):
-
-        job_id = str(uuid.uuid4())
-
-        job_dir = GENERATED_DIR / job_id
-
-        job_dir.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        scad_path = job_dir / "enclosure.scad"
-        stl_path = job_dir / "enclosure.stl"
-        metadata_path = job_dir / "metadata.json"
-
-        # ------------------------------------------------
-        # Generate SCAD
-        # ------------------------------------------------
-
-        scad_content = self._generate_scad(payload)
-
-        scad_path.write_text(scad_content)
-
-        metadata_path.write_text(
-            json.dumps(payload, indent=2)
-        )
-
-        # ------------------------------------------------
-        # Run OpenSCAD
-        # ------------------------------------------------
-
-        status = "success"
-        error = None
-
-        try:
-
-            subprocess.run(
-                [
-                    r"C:\Program Files\OpenSCAD\openscad.exe",
-                    "-o",
-                    str(stl_path),
-                    str(scad_path)
-                ],
-                check=True,
-                capture_output=True,
-                text=True
+            max_temp=max(
+                max_temp,
+                c["maxTemp"]
             )
 
-        except Exception as e:
+    analysis["totalHeatLoad"]=total_heat
+    analysis["criticalComponents"]=critical
+    analysis["maxTemp"]=max_temp
 
-            status = "fallback"
+    return analysis
 
-            error = str(e)
 
-            stl_path.write_text(
-                "OpenSCAD unavailable in deployment environment."
-            )
+# ==========================================
+# VENTILATION LOGIC
+# ==========================================
 
-        # ------------------------------------------------
-        # Save Job Record
-        # ------------------------------------------------
+def calculate_ventilation_recommendation(
+    total_heat,
+    critical_count
+):
 
-        record = {
+    if critical_count>=2:
 
-            "job_id": job_id,
+        return {
 
-            "name": payload.get(
-                "name",
-                "smart_enclosure"
-            ),
+            "level":"Maximum",
 
-            "status": status,
+            "slots":"8-12",
 
-            "error": error,
-
-            "created_at": time.strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-
-            "scad_file":
-                f"/download/{job_id}/enclosure.scad",
-
-            "stl_file":
-                f"/download/{job_id}/enclosure.stl",
-
-            "metadata_file":
-                f"/download/{job_id}/metadata.json"
+            "strategy":
+            "Multiple side and top vents"
         }
 
-        jobs = self._load_jobs()
+    elif total_heat>=5:
 
-        jobs.append(record)
+        return {
 
-        self._save_jobs(jobs)
+            "level":"High",
 
-        return record
+            "slots":"6-8",
+
+            "strategy":
+            "Side vents + top exhaust"
+        }
+
+    elif total_heat>=3:
+
+        return {
+
+            "level":"Medium",
+
+            "slots":"4-6",
+
+            "strategy":
+            "Moderate airflow"
+        }
+
+    return {
+
+        "level":"Basic",
+
+        "slots":"2-4",
+
+        "strategy":
+        "Minimal ventilation"
+    }
+
+
+# ==========================================
+# SAMBANOVA AI
+# ==========================================
+
+def generate_ai_recommendation(
+    components,
+    ventilation
+):
+
+    try:
+
+        prompt=f"""
+
+You are an enclosure design expert.
+
+Components:
+{components}
+
+Ventilation:
+{ventilation}
+
+Give:
+
+1 Cooling advice
+2 Vent placement
+3 Heat warnings
+4 Design suggestions
+
+Keep concise.
+"""
+
+        response=client.chat.completions.create(
+
+            model=
+            "Meta-Llama-3.3-70B-Instruct",
+
+            messages=[
+
+                {
+                    "role":"user",
+                    "content":prompt
+                }
+            ],
+
+            temperature=0.7
+        )
+
+        return response.choices[
+            0
+        ].message.content
+
+    except Exception as e:
+
+        return str(e)
+
+
+# ==========================================
+# ROUTES
+# ==========================================
+
+@app.route("/api/health")
+
+def health():
+
+    return jsonify({
+
+        "status":"healthy",
+
+        "ai":"SambaNova Connected"
+    })
+
+
+@app.route(
+"/api/components"
+)
+
+def components():
+
+    return jsonify({
+
+        "components":
+        list(
+            COMPONENT_DATABASE.keys()
+        )
+    })
+
+
+@app.route(
+"/api/analyze-heat",
+methods=["POST"]
+)
+
+def analyze_heat():
+
+    data=request.json
+
+    api_key=data.get(
+        "api_key"
+    )
+
+    valid,msg=validate_api_key(
+        api_key
+    )
+
+    if not valid:
+
+        return jsonify({
+
+            "error":msg
+
+        }),401
+
+
+    components=data.get(
+        "components",
+        []
+    )
+
+    analysis=analyze_components(
+        components
+    )
+
+    ventilation=\
+    calculate_ventilation_recommendation(
+
+        analysis[
+            "totalHeatLoad"
+        ],
+
+        analysis[
+            "criticalComponents"
+        ]
+    )
+
+    ai=generate_ai_recommendation(
+
+        components,
+
+        ventilation
+    )
+
+    analysis[
+        "ventilation"
+    ]=ventilation
+
+    analysis[
+        "ai_recommendation"
+    ]=ai
+
+    analysis[
+        "timestamp"
+    ]=datetime.now(
+    ).isoformat()
+
+    return jsonify(
+        analysis
+    )
+
+
+@app.route(
+"/api/generate",
+methods=["POST"]
+)
+
+def generate():
+
+    data=request.json
+
+    api_key=data.get(
+        "api_key"
+    )
+
+    valid,msg=\
+    validate_api_key(
+        api_key
+    )
+
+    if not valid:
+
+        return jsonify({
+
+            "error":msg
+
+        }),401
+
+    job_id=str(
+        uuid.uuid4()
+    )
+
+    return jsonify({
+
+        "job_id":job_id,
+
+        "status":
+        "processing",
+
+        "scad_file":
+        f"/files/{job_id}.scad",
+
+        "stl_file":
+        f"/files/{job_id}.stl",
+
+        "timestamp":
+        datetime.now(
+        ).isoformat()
+
+    })
+
+
+# ==========================================
+# MAIN
+# ==========================================
+
+if __name__=="__main__":
+
+    print(
+    "Smart Enclosure API"
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=True
+    )
