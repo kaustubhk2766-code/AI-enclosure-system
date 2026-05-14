@@ -7,6 +7,13 @@ import { OrbitControls, Stage } from "@react-three/drei";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
 
 // ----------------------------------------------------
+// BACKEND API URL
+// ----------------------------------------------------
+
+const API_BASE =
+  "https://ai-powered-automated-electronics.onrender.com";
+
+// ----------------------------------------------------
 // STL MODEL COMPONENT
 // ----------------------------------------------------
 
@@ -181,14 +188,14 @@ export default function App() {
       };
 
       const response = await axios.post(
-        "http://127.0.0.1:5000/api/generate",
+        `${API_BASE}/api/generate`,
         payload
       );
 
       setResult(response.data);
 
       setPreviewUrl(
-        `http://127.0.0.1:5000${response.data.stl_file}`
+        `${API_BASE}${response.data.stl_file}`
       );
 
       alert("Enclosure Generated!");
@@ -371,279 +378,9 @@ export default function App() {
 
                 </div>
 
-                <div>
-
-                  <label style={styles.label}>
-                    PCB Width
-                  </label>
-
-                  <input
-                    style={styles.input}
-                    type="number"
-                    name="pcb_width"
-                    value={formData.pcb_width}
-                    onChange={handleChange}
-                  />
-
-                </div>
-
-                <div>
-
-                  <label style={styles.label}>
-                    PCB Height
-                  </label>
-
-                  <input
-                    style={styles.input}
-                    type="number"
-                    name="pcb_height"
-                    value={formData.pcb_height}
-                    onChange={handleChange}
-                  />
-
-                </div>
-
-                <div>
-
-                  <label style={styles.label}>
-                    Wall Thickness
-                  </label>
-
-                  <input
-                    style={styles.input}
-                    type="number"
-                    name="wall_thickness"
-                    value={formData.wall_thickness}
-                    onChange={handleChange}
-                  />
-
-                </div>
-
-                <div>
-
-                  <label style={styles.label}>
-                    Clearance
-                  </label>
-
-                  <input
-                    style={styles.input}
-                    type="number"
-                    name="clearance"
-                    value={formData.clearance}
-                    onChange={handleChange}
-                  />
-
-                </div>
-
               </div>
 
             </div>
-
-            {/* CARD 2 */}
-
-            <div style={styles.card}>
-
-              <h2 style={styles.cardTitle}>
-                Device & Features
-              </h2>
-
-              <label style={styles.label}>
-                Device Type
-              </label>
-
-              <select
-                style={styles.select}
-                name="device_type"
-                value={formData.device_type}
-                onChange={handleChange}
-              >
-
-                <option>
-                  Arduino
-                </option>
-
-                <option>
-                  Raspberry Pi
-                </option>
-
-                <option>
-                  Power Supply
-                </option>
-
-                <option>
-                  Motor Driver
-                </option>
-
-              </select>
-
-              <div style={styles.featureGrid}>
-
-                <FeatureCheckbox
-                  label="Ventilation"
-                  sublabel="Cooling vents"
-                  name="ventilation"
-                  checked={formData.ventilation}
-                  onChange={handleChange}
-                />
-
-                <FeatureCheckbox
-                  label="Mounting"
-                  sublabel="PCB holes"
-                  name="mounting_standoffs"
-                  checked={formData.mounting_standoffs}
-                  onChange={handleChange}
-                />
-
-                <FeatureCheckbox
-                  label="Lid Separation"
-                  sublabel="Separate lid"
-                  name="lid_separation"
-                  checked={formData.lid_separation}
-                  onChange={handleChange}
-                />
-
-                <FeatureCheckbox
-                  label="Rounded Corners"
-                  sublabel="Smooth edges"
-                  name="rounded_corners"
-                  checked={formData.rounded_corners}
-                  onChange={handleChange}
-                />
-
-              </div>
-
-              <div
-                style={{
-                  ...styles.suggestion,
-                  borderLeft:
-                    `5px solid ${suggestion.color}`
-                }}
-              >
-
-                {suggestion.text}
-
-              </div>
-
-              <button
-                style={styles.generateButton}
-                onClick={generateEnclosure}
-              >
-
-                {
-                  loading
-                    ? "Generating..."
-                    : "Generate Enclosure"
-                }
-
-              </button>
-
-            </div>
-
-          </div>
-
-          {/* RIGHT */}
-
-          <div>
-
-            {/* PREVIEW */}
-
-            <div style={styles.previewCard}>
-
-              <h2 style={styles.cardTitle}>
-                3D Preview
-              </h2>
-
-              <div style={styles.previewBox}>
-
-                {
-
-                  previewUrl ? (
-
-                    <Canvas
-                      camera={{
-                        position: [100, 100, 100],
-                        fov: 45
-                      }}
-                    >
-
-                      <ambientLight intensity={1} />
-
-                      <directionalLight
-                        position={[10, 10, 10]}
-                      />
-
-                      <Stage>
-
-                        <STLModel url={previewUrl} />
-
-                      </Stage>
-
-                      <OrbitControls />
-
-                    </Canvas>
-
-                  ) : (
-
-                    <div style={styles.placeholder}>
-
-                      <div style={styles.cube}>
-                        ⬛
-                      </div>
-
-                      <p>
-                        Generate enclosure to preview STL
-                      </p>
-
-                    </div>
-
-                  )
-                }
-
-              </div>
-
-            </div>
-
-            {/* RESULT */}
-
-            {
-
-              result && (
-
-                <div style={styles.resultCard}>
-
-                  <h2>
-                    ✅ Generation Success
-                  </h2>
-
-                  <p>
-                    Job ID:
-                  </p>
-
-                  <div style={styles.jobId}>
-                    {result.job_id}
-                  </div>
-
-                  <a
-                    href={`http://127.0.0.1:5000${result.scad_file}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.downloadButton}
-                  >
-                    Download SCAD
-                  </a>
-
-                  <a
-                    href={`http://127.0.0.1:5000${result.stl_file}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={styles.downloadButton}
-                  >
-                    Download STL
-                  </a>
-
-                </div>
-              )
-            }
 
           </div>
 
@@ -725,13 +462,6 @@ const styles = {
     padding: "30px",
     borderRadius: "22px",
     marginBottom: "25px",
-    border: "1px solid #1e293b"
-  },
-
-  previewCard: {
-    background: "#071224",
-    padding: "30px",
-    borderRadius: "22px",
     border: "1px solid #1e293b"
   },
 
@@ -819,52 +549,6 @@ const styles = {
     color: "white",
     fontSize: "18px",
     cursor: "pointer"
-  },
-
-  previewBox: {
-    height: "500px",
-    borderRadius: "20px",
-    overflow: "hidden",
-    background: "#000"
-  },
-
-  placeholder: {
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center"
-  },
-
-  cube: {
-    fontSize: "80px"
-  },
-
-  resultCard: {
-    background: "#071224",
-    marginTop: "25px",
-    padding: "30px",
-    borderRadius: "22px",
-    border: "1px solid #1e293b"
-  },
-
-  jobId: {
-    background: "#111827",
-    padding: "12px",
-    borderRadius: "12px",
-    marginBottom: "20px",
-    wordBreak: "break-all"
-  },
-
-  downloadButton: {
-    display: "block",
-    background: "#2563eb",
-    padding: "14px",
-    textAlign: "center",
-    borderRadius: "12px",
-    color: "white",
-    textDecoration: "none",
-    marginBottom: "12px"
   },
 
   unitRow: {
