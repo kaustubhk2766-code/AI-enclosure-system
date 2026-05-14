@@ -7,178 +7,257 @@ import React, { useState, useEffect, useRef } from "react";
 const API_BASE_URL = "https://ai-powered-automated-electronics.onrender.com";
 
 // ============================================
-// CSS 3D BOX PREVIEW (replaces three.js)
+// INTERACTIVE THREE.JS 3D VIEWER (via iframe srcdoc)
 // ============================================
 
 function Box3DPreview({ length = 100, width = 60, height = 20, hasVents, hasLid, hasRounded }) {
-  const scale = 1.2;
-  const maxDim = Math.max(length, width, height);
-  const factor = 180 / maxDim;
-  const l = Math.round(length * factor * scale);
-  const w = Math.round(width * factor * scale);
-  const h = Math.round(height * factor * scale);
+  const iframeRef = useRef(null);
 
-  const ventLines = hasVents
-    ? Array.from({ length: 5 }, (_, i) => (
-        <div
-          key={i}
-          style={{
-            position: "absolute",
-            top: `${18 + i * 14}%`,
-            left: "10%",
-            width: "80%",
-            height: "2px",
-            background: "rgba(0,200,255,0.3)",
-            borderRadius: "1px"
-          }}
-        />
-      ))
-    : null;
+  const srcdoc = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #020617; overflow: hidden; }
+  canvas { display: block; }
+  #info {
+    position: absolute; bottom: 10px; left: 0; right: 0;
+    text-align: center; font-family: sans-serif;
+    font-size: 11px; color: #475569; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="info">Drag to rotate &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Right-drag to pan</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function() {
+  var W = window.innerWidth, H = window.innerHeight;
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x020617);
+
+  var camera = new THREE.PerspectiveCamera(45, W / H, 0.1, 5000);
+  camera.position.set(220, 160, 280);
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  document.body.appendChild(renderer.domElement);
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  var dLight = new THREE.DirectionalLight(0x60a5fa, 1.2);
+  dLight.position.set(200, 300, 200);
+  scene.add(dLight);
+  var dLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+  dLight2.position.set(-200, -100, -200);
+  scene.add(dLight2);
+
+  // Grid
+  var grid = new THREE.GridHelper(600, 20, 0x1e293b, 0x1e293b);
+  scene.add(grid);
+
+  // Enclosure group
+  var group = new THREE.Group();
+  scene.add(group);
+
+  function buildEnclosure(L, W, H, vents, lid, rounded) {
+    while (group.children.length) group.remove(group.children[0]);
+
+    var bodyH = lid ? H * 0.8 : H;
+    var lidH  = H * 0.2;
+
+    var mat = new THREE.MeshStandardMaterial({
+      color: 0x1e3a5f, metalness: 0.3, roughness: 0.55,
+      transparent: true, opacity: 0.92
+    });
+    var edgeMat = new THREE.LineBasicMaterial({ color: 0x3b82f6 });
+    var lidMat = new THREE.MeshStandardMaterial({
+      color: 0x1e40af, metalness: 0.4, roughness: 0.4,
+      transparent: true, opacity: 0.85
+    });
+
+    // Body box
+    var bodyGeo = new THREE.BoxGeometry(L, bodyH, W);
+    var body = new THREE.Mesh(bodyGeo, mat);
+    body.position.y = bodyH / 2;
+    group.add(body);
+    var edges = new THREE.EdgesGeometry(bodyGeo);
+    var bodyEdge = new THREE.LineSegments(edges, edgeMat);
+    bodyEdge.position.y = bodyH / 2;
+    group.add(bodyEdge);
+
+    // Lid
+    if (lid) {
+      var lidGeo = new THREE.BoxGeometry(L, lidH, W);
+      var lidMesh = new THREE.Mesh(lidGeo, lidMat);
+      lidMesh.position.y = bodyH + lidH / 2;
+      group.add(lidMesh);
+      var lidEdge = new THREE.LineSegments(new THREE.EdgesGeometry(lidGeo), new THREE.LineBasicMaterial({ color: 0x60a5fa }));
+      lidEdge.position.y = bodyH + lidH / 2;
+      group.add(lidEdge);
+    }
+
+    // Vent slots on front face
+    if (vents) {
+      var ventMat = new THREE.MeshStandardMaterial({ color: 0x000d1f });
+      var slotCount = 5;
+      var slotW = L * 0.7;
+      var slotH = bodyH * 0.04;
+      var slotD = 0.5;
+      for (var i = 0; i < slotCount; i++) {
+        var yPos = bodyH * 0.2 + (i / (slotCount - 1)) * bodyH * 0.6;
+        var slot = new THREE.Mesh(
+          new THREE.BoxGeometry(slotW, slotH, slotD + 2),
+          ventMat
+        );
+        slot.position.set(0, yPos, W / 2 - slotD / 2);
+        group.add(slot);
+      }
+    }
+
+    // Standoff cylinders at corners (bottom)
+    var standoffMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.6 });
+    var offsets = [[-L*0.38, W*0.38],[L*0.38, W*0.38],[-L*0.38,-W*0.38],[L*0.38,-W*0.38]];
+    offsets.forEach(function(o) {
+      var cyl = new THREE.Mesh(
+        new THREE.CylinderGeometry(3, 3, bodyH * 0.6, 16),
+        standoffMat
+      );
+      cyl.position.set(o[0], bodyH * 0.3, o[1]);
+      group.add(cyl);
+    });
+
+    // USB cutout hint on side
+    var usbMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+    var usb = new THREE.Mesh(new THREE.BoxGeometry(18, 10, 4), usbMat);
+    usb.position.set(-L / 2 + 1, bodyH * 0.15, 0);
+    group.add(usb);
+
+    // Center group
+    group.position.set(-L / 2, 0, -W / 2);
+  }
+
+  buildEnclosure(${length}, ${width}, ${height}, ${hasVents}, ${hasLid}, ${hasRounded});
+
+  // Orbit controls (manual implementation — no import needed)
+  var mouse = { x: 0, y: 0 };
+  var isLeft = false, isRight = false;
+  var spherical = { theta: 0.6, phi: 1.0, radius: 420 };
+  var target = new THREE.Vector3(${length / 2}, ${height / 2}, ${width / 2});
+
+  function updateCamera() {
+    camera.position.x = target.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+    camera.position.y = target.y + spherical.radius * Math.cos(spherical.phi);
+    camera.position.z = target.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+    camera.lookAt(target);
+  }
+  updateCamera();
+
+  renderer.domElement.addEventListener('mousedown', function(e) {
+    if (e.button === 0) isLeft = true;
+    if (e.button === 2) isRight = true;
+    mouse.x = e.clientX; mouse.y = e.clientY;
+  });
+  window.addEventListener('mouseup', function() { isLeft = false; isRight = false; });
+  window.addEventListener('mousemove', function(e) {
+    if (!isLeft && !isRight) return;
+    var dx = e.clientX - mouse.x;
+    var dy = e.clientY - mouse.y;
+    mouse.x = e.clientX; mouse.y = e.clientY;
+    if (isLeft) {
+      spherical.theta -= dx * 0.008;
+      spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - dy * 0.008));
+    }
+    if (isRight) {
+      var pan = new THREE.Vector3(-dx * 0.4, dy * 0.4, 0);
+      pan.applyQuaternion(camera.quaternion);
+      target.add(pan);
+    }
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('wheel', function(e) {
+    spherical.radius = Math.max(80, Math.min(1200, spherical.radius + e.deltaY * 0.5));
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+  // Touch support
+  var touches = {};
+  var lastPinchDist = null;
+  renderer.domElement.addEventListener('touchstart', function(e) {
+    for (var t of e.touches) touches[t.identifier] = { x: t.clientX, y: t.clientY };
+  });
+  renderer.domElement.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      var t = e.touches[0];
+      var prev = touches[t.identifier];
+      if (prev) {
+        spherical.theta -= (t.clientX - prev.x) * 0.008;
+        spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - (t.clientY - prev.y) * 0.008));
+        updateCamera();
+      }
+      touches[t.identifier] = { x: t.clientX, y: t.clientY };
+    } else if (e.touches.length === 2) {
+      var dx = e.touches[0].clientX - e.touches[1].clientX;
+      var dy = e.touches[0].clientY - e.touches[1].clientY;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      if (lastPinchDist) {
+        spherical.radius = Math.max(80, Math.min(1200, spherical.radius - (dist - lastPinchDist) * 1.5));
+        updateCamera();
+      }
+      lastPinchDist = dist;
+    }
+  }, { passive: false });
+  renderer.domElement.addEventListener('touchend', function(e) {
+    lastPinchDist = null;
+    for (var t of e.changedTouches) delete touches[t.identifier];
+  });
+
+  // Listen for dimension updates from parent React
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'UPDATE_ENCLOSURE') {
+      var d = e.data;
+      buildEnclosure(d.length, d.width, d.height, d.hasVents, d.hasLid, d.hasRounded);
+      target.set(d.length / 2, d.height / 2, d.width / 2);
+      updateCamera();
+    }
+  });
+
+  window.addEventListener('resize', function() {
+    W = window.innerWidth; H = window.innerHeight;
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    renderer.setSize(W, H);
+  });
+
+  (function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  })();
+})();
+</script>
+</body>
+</html>`;
+
+  // Send updates to iframe when props change
+  useEffect(() => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({
+        type: "UPDATE_ENCLOSURE", length, width, height, hasVents, hasLid, hasRounded
+      }, "*");
+    }
+  }, [length, width, height, hasVents, hasLid, hasRounded]);
 
   return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        perspective: "900px"
-      }}
-    >
-      <div
-        style={{
-          transformStyle: "preserve-3d",
-          transform: "rotateX(-22deg) rotateY(38deg)",
-          position: "relative",
-          width: l,
-          height: w
-        }}
-      >
-        {/* Front face */}
-        <div
-          style={{
-            position: "absolute",
-            width: l,
-            height: h,
-            top: w - h,
-            left: 0,
-            background: "linear-gradient(135deg, #1e3a5f 0%, #0d2137 100%)",
-            border: "1px solid #3b82f6",
-            transform: `translateZ(${w / 2}px)`,
-            borderRadius: hasRounded ? "6px" : "0",
-            overflow: "hidden"
-          }}
-        >
-          {ventLines}
-        </div>
-
-        {/* Back face */}
-        <div
-          style={{
-            position: "absolute",
-            width: l,
-            height: h,
-            top: w - h,
-            left: 0,
-            background: "#0a1929",
-            border: "1px solid #1e40af",
-            transform: `translateZ(-${w / 2}px)`,
-            borderRadius: hasRounded ? "6px" : "0"
-          }}
-        />
-
-        {/* Top face (lid) */}
-        <div
-          style={{
-            position: "absolute",
-            width: l,
-            height: w,
-            top: 0,
-            left: 0,
-            background: hasLid
-              ? "linear-gradient(135deg, #1e40af44 0%, #1e3a5f88 100%)"
-              : "linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%)",
-            border: `1px solid ${hasLid ? "#60a5fa" : "#3b82f6"}`,
-            transform: `rotateX(90deg) translateZ(${h / 2}px)`,
-            borderRadius: hasRounded ? "6px" : "0"
-          }}
-        />
-
-        {/* Bottom face */}
-        <div
-          style={{
-            position: "absolute",
-            width: l,
-            height: w,
-            top: 0,
-            left: 0,
-            background: "#071224",
-            border: "1px solid #1e293b",
-            transform: `rotateX(90deg) translateZ(-${h / 2}px)`,
-            borderRadius: hasRounded ? "6px" : "0"
-          }}
-        />
-
-        {/* Right face */}
-        <div
-          style={{
-            position: "absolute",
-            width: w,
-            height: h,
-            top: w - h,
-            left: 0,
-            background: "linear-gradient(135deg, #153456 0%, #0d2137 100%)",
-            border: "1px solid #2563eb",
-            transform: `rotateY(-90deg) translateZ(0px)`,
-            transformOrigin: "left center",
-            borderRadius: hasRounded ? "6px" : "0"
-          }}
-        />
-
-        {/* Left face */}
-        <div
-          style={{
-            position: "absolute",
-            width: w,
-            height: h,
-            top: w - h,
-            right: 0,
-            background: "#0a1929",
-            border: "1px solid #1e40af",
-            transform: `rotateY(90deg) translateZ(0px)`,
-            transformOrigin: "right center",
-            borderRadius: hasRounded ? "6px" : "0"
-          }}
-        />
-
-        {/* Glow effect */}
-        <div
-          style={{
-            position: "absolute",
-            inset: -20,
-            background: "radial-gradient(ellipse at center, rgba(59,130,246,0.15) 0%, transparent 70%)",
-            pointerEvents: "none"
-          }}
-        />
-      </div>
-
-      {/* Dimension labels */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 12,
-          left: 0,
-          right: 0,
-          textAlign: "center",
-          fontSize: "11px",
-          color: "#64748b",
-          letterSpacing: "0.05em"
-        }}
-      >
-        {length} × {width} × {height} mm
-      </div>
-    </div>
+    <iframe
+      ref={iframeRef}
+      srcDoc={srcdoc}
+      style={{ width: "100%", height: "100%", border: "none", borderRadius: "20px", display: "block" }}
+      title="3D Enclosure Preview"
+      sandbox="allow-scripts"
+    />
   );
 }
 
